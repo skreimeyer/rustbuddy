@@ -1,17 +1,61 @@
-package main
+/*
+Copyright © 2019 Samuel Kreimeyer
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program. If not, see <http://www.gnu.org/licenses/>.
+*/
+package cmd
 
 import (
-	"flag"
 	"fmt"
+	"html/template"
 	"io/ioutil"
 	"os"
 	"strings"
-	"text/template"
 
 	"github.com/skreimeyer/rustbuddy/rust"
+	"github.com/spf13/cobra"
 )
 
-func main() {
+// mktestCmd represents the mktest command
+var mktestCmd = &cobra.Command{
+	Use:   "mktest [file]",
+	Short: "Generate templates for table-based unit tests",
+	Args:  cobra.MinimumNArgs(1),
+	Long: `Mktest performs a simple lexical analysis of a rust code file and
+	identifies signatures for functions and methods. Each becomes its own test
+	function, which requires filling out one or more "Case" structs. The basic
+	structure of the test is:
+	for each case:
+		assert(
+			my_function(test_arguments) == what-I-want,
+			show-this-note-about-the-testcase-on-error
+			)`,
+	Run: func(cmd *cobra.Command, args []string) {
+		makeTest(args)
+	},
+}
+
+var out string
+var app bool
+
+func init() {
+	rootCmd.AddCommand(mktestCmd)
+	mktestCmd.Flags().BoolVar(&app, "append", false, "Append the output to the source file")
+	mktestCmd.Flags().StringVar(&out, "output", "", "Name of file to write output. Defaults to stdout")
+}
+
+func makeTest(args []string) {
 	// template setup
 	const tmpl = `
 #[cfg(test)]
@@ -57,21 +101,8 @@ mod tests {
 		"skipTraits": skipTraits,
 	}
 	testTemp := template.Must(template.New("testTemp").Funcs(fmap).Parse(tmpl))
-	flag.Usage = func() {
-		fmt.Printf("Usage: mktest [-Options ...] [File1.rs ...FileN.rs]\n")
-		flag.PrintDefaults()
-	}
 
-	// flag setup
-
-	app := flag.Bool("a", false, "Append the output to the source file")
-	out := flag.String("o", "", "Name of file to write output. Defaults to stdout")
-	// This is a bad design.
-	flag.Parse()
-
-	// the meat
-
-	files := flag.Args()
+	files := args
 	for _, fname := range files {
 		f, err := os.Open(fname)
 		if err != nil {
@@ -85,14 +116,14 @@ mod tests {
 		}
 		// This needs a redesign
 		destination := os.Stdout
-		if *out != "" {
-			destination, err = os.Create(*out)
+		if out != "" {
+			destination, err = os.Create(out)
 			if err != nil {
 				fmt.Println("Unable to create file:", err)
 				return
 			}
 		}
-		if *app == true {
+		if app == true {
 			b, _ := ioutil.ReadFile(fname) // this err is redundant
 			destination.Write(b)
 		}
@@ -138,13 +169,10 @@ func skipMain(funcs []rust.Fn) []rust.Fn {
 func skipTraits(funcs []rust.Fn) []rust.Fn {
 	ignore := []int{}
 	for i, val := range funcs {
-		fmt.Println("Parent struct", val.Parent.Struct)
-		fmt.Println("Parent Trait", val.Parent.Trait)
 		if val.Parent.Struct == "" && len(val.Parent.Trait) > 1 {
 			ignore = append(ignore, i)
 		}
 	}
-	fmt.Println("ignore list:", ignore)
 	if len(ignore) == 0 {
 		return funcs
 	}
