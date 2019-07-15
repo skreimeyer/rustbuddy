@@ -1,3 +1,4 @@
+// Package cmd contains all core components of rustbuddy.
 /*
 Copyright © 2019 Samuel Kreimeyer
 
