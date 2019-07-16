@@ -1,5 +1,6 @@
 //! Just a comment
 //! Second line
+
 fn main() {
     println!("Hello, world!");
     let x = 5;

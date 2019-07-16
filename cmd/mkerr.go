@@ -19,8 +19,10 @@ package cmd
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
 	"html/template"
+	"io/ioutil"
 	"os"
 	"path"
 	"strings"
@@ -33,21 +35,17 @@ var mkerrCmd = &cobra.Command{
 	Short: "Generate a custom error for a single file",
 	Long: `mkerr uses the file or module name to template out a custom error
 	identical to that shown in the "Defining and Error Type" from the
-	Rust by Example book. Output written to stdout by default`,
+	Rust by Example book. w written to stdout by default`,
 	Args: cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		dest := os.Stdout
+		dest := ""
 		src, err := os.Open(args[0])
 		if err != nil {
 			fmt.Println(err)
 			return
 		}
 		if writeout == true {
-			dest, err = os.Create(args[0])
-			if err != nil {
-				fmt.Println(err)
-				return
-			}
+			dest = args[0]
 		}
 		if name == "" {
 			name = makeName(args[0]) + "Error"
@@ -61,11 +59,11 @@ var name string
 
 func init() {
 	rootCmd.AddCommand(mkerrCmd)
-	mkerrCmd.Flags().BoolVar(&writeout, "write", false, "write output in place of the existing file")
+	mkerrCmd.Flags().BoolVar(&writeout, "write", false, "write w in place of the existing file")
 	mkerrCmd.Flags().StringVar(&name, "name", "", "name for custom error. Defaults to module name.")
 }
 
-func makeErr(errName string, source *os.File, output *os.File) {
+func makeErr(errName string, source *os.File, outFile string) {
 	const eTmpl = `
 use std::error::Error;
 use std::fmt;
@@ -91,7 +89,9 @@ impl Error for {{.E}} {
     fn description(&self) -> &str {
         &self.message
     }
-}`
+}
+
+`
 	eTemp := template.Must(template.New("eTemp").Parse(eTmpl))
 
 	type customErr struct {
@@ -100,34 +100,43 @@ impl Error for {{.E}} {
 	ce := customErr{E: errName}
 	writeComplete := false
 	scn := bufio.NewScanner(source)
+	var b bytes.Buffer
 	for scn.Scan() {
 		if strings.HasPrefix(scn.Text(), "//") {
-			output.Write(scn.Bytes())
-			output.Write([]byte("\n"))
+			b.Write(scn.Bytes())
+			b.Write([]byte("\n"))
 			continue
 		}
 		if strings.HasPrefix(scn.Text(), "/*") {
+			b.Write(scn.Bytes())
+			b.Write([]byte{'\n'}) // avoid trimming newline
 			for {
 				scn.Scan()
-				output.Write(scn.Bytes())
-				output.Write([]byte("\n"))
+				b.Write(scn.Bytes())
+				b.Write([]byte("\n"))
 				if strings.Contains(scn.Text(), "*/") {
+					scn.Scan() // so we don't catch the trailing slash
 					break
 				}
 			}
 		}
 		if writeComplete == false {
-			err := eTemp.Execute(output, ce)
+			err := eTemp.Execute(&b, ce)
 			writeComplete = true
 			if err != nil {
 				fmt.Println("Failed to write error template:", err)
 			}
 		}
-		output.Write(scn.Bytes())
-		output.Write([]byte("\n"))
+		b.Write(scn.Bytes())
+		b.Write([]byte("\n"))
 	}
 	source.Close()
-	output.Close()
+	if outFile != "" {
+		ioutil.WriteFile(outFile, b.Bytes(), 0644)
+	} else {
+		os.Stdout.Write(b.Bytes())
+
+	}
 }
 
 func makeName(fname string) string {
