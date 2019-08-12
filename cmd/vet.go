@@ -18,35 +18,80 @@ along with this program. If not, see <http://www.gnu.org/licenses/>.
 package cmd
 
 import (
+	"bytes"
 	"fmt"
+	"io"
+	"os"
 
+	"github.com/skreimeyer/rustbuddy/rust"
 	"github.com/spf13/cobra"
 )
 
 // vetCmd represents the vet command
 var vetCmd = &cobra.Command{
-	Use:   "vet",
+	Use:   "vet [FILENAME]",
 	Short: "Summarize unsafe blocks in a file or crate",
 	Long: `Vet identifies blocks of "unsafe" rust and gives a summary of how
-	much of a file is marked "unsafe" and can provide more detailed information.
-	
-	Think of vet as an auditing tool to get a simplistic look at potential risk
-	areas in code.`,
+much of a file is marked "unsafe." Vet is an auditing tool to get a simplistic 
+look at potential risk areas in code.`,
+	Args: cobra.MinimumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("vet called")
+		runVet(args)
 	},
 }
 
 func init() {
 	rootCmd.AddCommand(vetCmd)
+}
 
-	// Here you will define your flags and configuration settings.
+func runVet(args []string) {
+	for _, fname := range args {
+		f, err := os.Open(fname)
+		if err != nil {
+			fmt.Println("cannot open file", err)
+			return
+		}
+		src, err := rust.Parse(f)
+		if err != nil {
+			fmt.Println("cannot parse file", err)
+			return
+		}
+		f.Close()
+		uLoc := 0
+		for _, u := range src.UB {
+			uLoc += u.Span.End.Line - u.Span.Start.Line
+		}
+		fAgain, _ := os.Open(fname)
+		sLoc, err := lineCounter(fAgain)
+		if err != nil {
+			fmt.Println("error getting linecount", err)
+			return
+		}
+		upc := float64(uLoc) / float64(sLoc) * 100.0
+		fmt.Printf("%s summary:\nSLOC:%d\tunsafe:%.2f%%\tunsafe blocks:%d\n",
+			fname,
+			sLoc,
+			upc,
+			len(src.UB),
+		)
+	}
+}
 
-	// Cobra supports Persistent Flags which will work for this command
-	// and all subcommands, e.g.:
-	// vetCmd.PersistentFlags().String("foo", "", "A help for foo")
+func lineCounter(r io.Reader) (int, error) {
+	buf := make([]byte, 32*1024)
+	count := 0
+	lineSep := []byte{'\n'}
 
-	// Cobra supports local flags which will only run when this command
-	// is called directly, e.g.:
-	// vetCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
+	for {
+		c, err := r.Read(buf)
+		count += bytes.Count(buf[:c], lineSep)
+
+		switch {
+		case err == io.EOF:
+			return count, nil
+
+		case err != nil:
+			return count, err
+		}
+	}
 }

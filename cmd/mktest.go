@@ -20,7 +20,6 @@ package cmd
 import (
 	"fmt"
 	"html/template"
-	"io/ioutil"
 	"os"
 	"strings"
 
@@ -58,21 +57,22 @@ func init() {
 
 func makeTest(args []string) {
 	// template setup
-	const tmpl = `
+	const mktestTemplate = `
 #[cfg(test)]
 mod tests {
 	use super::*;
 
-	{{range skipTraits .Funcs | skipMain}}#[test]
-	fn test_{{.Parent.Trait}}{{.Parent.Struct}}{{.Name}}() {
-		{{if skipSelf .Args | len | ne 0 }}struct Input {
-			{{range skipSelf .Args}}{{.}},
+	// generated code. Edit only test cases!
+	// functions
+	{{range .Funcs | skipMain}}#[test]
+	fn test_{{.Name}}() {
+		{{if len .Args | ne 0 }}struct Input {
+			{{range .Args}}{{.}},
 			{{end}}};{{end}}
 		struct Output {
 			R: {{.Return}}
 		};
-		struct Case { {{if ne .Parent.Struct ""}}
-			obj: {{.Parent.Struct}}{{end}}
+		struct Case { 
 			inpt: Input,
 			out: Output,
 			comment: string,
@@ -80,28 +80,57 @@ mod tests {
 		// __TEST CASES GO HERE__
 		let cases = vec![
 			// FIXME
-			// Case { {{if ne .Parent.Struct ""}}
-			//	obj: {{.Parent.Struct}}{}{{end}}
+			// Case {
 			// 	inpt: Input {},
 			// 	out: Output{},
 			// 	comment: "",
 			// },
 		]
 		// __END TEST CASES__
-		for c in cases.iter() {
-			assert!({{if ne .Parent.Struct ""}}c.obj.{{end}}{{.Name}}({{range skipSelf .Args}}c.inpt.{{stripType .}},{{end}}) == c.out, c.comment)
+		for c in cases.iter() { {{$total := skipSelf .Args | len | lessOne}}
+			assert!({{.Name}}({{range $i,$x := .Args}}c.inpt.{{stripType $x}}{{if ne $i $total}}, {{end}}{{end}}) == c.out, c.comment)
 		}
 	}
 	{{end}}
-}
+	{{if len .RsStructs | ne 0}}// methods{{end}}
+	{{range .RsStructs}}{{$parent := .Name}}{{range .Methods}}#[test]
+	fn test_{{$parent}}_{{.Name}}() {
+		{{if skipSelf .Args | len | ne 0 }}struct Input {
+			{{range skipSelf .Args}}{{.}},
+			{{end}}};{{end}}
+		struct Output {
+			R: {{.Return}}
+		};
+		struct Case { 
+			obj:		{{$parent}},{{if skipSelf .Args | len | ne 0 }}
+			input:		Input,{{end}}
+			out:		Output,
+			comment:	string,
+		};
+		// __TEST CASES GO HERE__
+		let cases = vec![
+			// FIXME
+			// Case {
+			//	obj: 	{{$parent}}{},{{if skipSelf .Args | len | ne 0 }}
+			//	input:	Input{},{{end}}
+			// 	out: 	Output{},
+			// 	comment:"",
+			// },
+		]
+		// __END TEST CASES__
+		for c in cases.iter() { {{$total := skipSelf .Args | len | lessOne}}
+			assert!(c.obj.{{.Name}}({{range $i, $x := skipSelf .Args}}c.input.{{stripType $x}}{{if ne $i $total}}, {{end}}{{end}}) == c.out, c.comment)
+		}
+	}
+	{{end}}{{end}}}
 `
 	fmap := template.FuncMap{
-		"stripType":  stripType,
-		"skipSelf":   skipSelf,
-		"skipMain":   skipMain,
-		"skipTraits": skipTraits,
+		"stripType": stripType,
+		"skipSelf":  skipSelf,
+		"skipMain":  skipMain,
+		"lessOne":   lessOne,
 	}
-	testTemp := template.Must(template.New("testTemp").Funcs(fmap).Parse(tmpl))
+	testTemp := template.Must(template.New("testTemp").Funcs(fmap).Parse(mktestTemplate))
 
 	files := args
 	for _, fname := range files {
@@ -110,7 +139,7 @@ mod tests {
 			fmt.Println("File Read error:", err)
 			continue
 		}
-		tree, err := rust.Parse(f)
+		source, err := rust.Parse(f)
 		if err != nil {
 			fmt.Println("Parsing error:", err)
 			continue
@@ -125,14 +154,19 @@ mod tests {
 			}
 		}
 		if app == true {
-			b, _ := ioutil.ReadFile(fname) // this err is redundant
-			destination.Write(b)
+			f.Close()
+			destination, err = os.OpenFile(fname, os.O_RDWR|os.O_APPEND, 0660)
+			if err != nil {
+				fmt.Println("Cannot write to source file:", err)
+				return
+			}
 		}
-		err = testTemp.Execute(destination, tree)
+		err = testTemp.Execute(destination, source)
 		if err != nil {
 			fmt.Println("Template error:", err)
 			continue
 		}
+		destination.Close()
 	}
 }
 
@@ -151,6 +185,9 @@ func stripType(s string) string {
 		return ""
 	}
 	i := strings.Index(s, ":")
+	if i == -1 {
+		return strings.TrimSpace(s)
+	}
 	return strings.TrimSpace(s[:i])
 }
 
@@ -164,29 +201,6 @@ func skipMain(funcs []rust.Fn) []rust.Fn {
 	return funcs
 }
 
-// skipTraits ignores those function which are only associated with trait
-// definitions. There aren't meaningful tests that we can perform for them.
-// without a LOT of introspection we don't want right now.
-func skipTraits(funcs []rust.Fn) []rust.Fn {
-	ignore := []int{}
-	for i, val := range funcs {
-		if val.Parent.Struct == "" && len(val.Parent.Trait) > 1 {
-			ignore = append(ignore, i)
-		}
-	}
-	if len(ignore) == 0 {
-		return funcs
-	}
-	output := []rust.Fn{}
-	for j, n := range ignore {
-		if j == len(ignore)-1 {
-			output = append(output, funcs[n+1:]...)
-		}
-		if n == 0 {
-			continue
-		}
-		next := ignore[j+1]
-		output = append(output, funcs[n+1:next]...)
-	}
-	return output
+func lessOne(i int) int {
+	return i - 1
 }

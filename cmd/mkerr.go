@@ -63,6 +63,9 @@ func init() {
 	mkerrCmd.Flags().StringVar(&name, "name", "", "name for custom error. Defaults to module name.")
 }
 
+// Templates a typical error declaration block. Uses bufio scanner because we
+// actually need the content of comment lines, so we're not omitting any of the
+// content of the original file.
 func makeErr(errName string, source *os.File, outFile string) {
 	const eTmpl = `
 use std::error::Error;

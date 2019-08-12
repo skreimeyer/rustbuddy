@@ -3,48 +3,79 @@ package rust
 
 import (
 	"os"
-	"strings"
 	"text/scanner"
 )
 
-// SyntaxTree is a data structure representing the basic lexical structure of
+// Source is a data structure representing the basic lexical structure of
 // a rust source code file.
-type SyntaxTree struct {
+type Source struct {
 	Funcs     []Fn
+	RsStructs []RsStruct
+	Enums     []Enum
+	Traits    []Trait
 	Tests     []Test
 	TestBlock int
+	UB        []Unsafe
+}
+
+// Span is the start end end location of a code block
+type Span struct {
+	Start scanner.Position
+	End   scanner.Position
 }
 
 // Fn is a function in rust
 type Fn struct {
+	Span   Span
 	Name   string
 	Args   []string
 	Return string
-	Parent Method
-	Line   int
 }
 
-// Method are all functions explicitly implemented for a particular struct
-type Method struct {
-	Struct string
-	Trait  string
+// Enum is an Enumeration of types in rust
+type Enum struct {
+	Span     Span
+	Name     string
+	Variants []string
+}
+
+// RsStruct is a data structure specific to rust source code. The awkward name
+// is to avoid using a keyword
+type RsStruct struct {
+	Span    Span
+	Name    string
+	Methods []Fn
+	Traits  []Trait
+}
+
+// Trait refers to Rust trait name. Currently, there is no use for the body of
+// a trait definition.
+type Trait struct {
+	Span Span
+	Name string
 }
 
 // Test refers to unit tests already within the source
 type Test struct {
 	Name string
-	Line int
+	Span Span
+}
+
+// Unsafe are blocks of code marked unsafe
+type Unsafe struct {
+	Span Span
 }
 
 // Parse reads rust source code and does a simple lexical analysis
-func Parse(f *os.File) (SyntaxTree, error) {
+func Parse(f *os.File) (Source, error) {
 	var s scanner.Scanner
-	var st SyntaxTree
+	var src Source
 	s.Init(f)
-	depth := 0
-	parent := Method{}
 	for tok := s.Scan(); tok != scanner.EOF; tok = s.Scan() {
 		switch s.TokenText() {
+		case "!": // macros have completely unpredictable structure, so we need
+			// to zip past them for sanity.
+			collapseMacro(&s)
 		case "#": // attribute
 			attName := "#"
 			for {
@@ -56,121 +87,33 @@ func Parse(f *os.File) (SyntaxTree, error) {
 			}
 			switch attName {
 			case "#[cfg(test)]":
-				st.TestBlock = s.Pos().Line
+				src.TestBlock = s.Pos().Line
 			case "#[test]":
-				localDepth := 0
-				line := s.Pos().Line
-				fnStr := ""
-				foundBlock := false
-				for {
-					if localDepth == 0 && foundBlock == true {
-						break
-					}
-					c := s.Next()
-					fnStr += string(c)
-					switch c {
-					case '{':
-						localDepth++
-						foundBlock = true
-					case '}':
-						localDepth--
-					default:
-						continue
-					}
-				}
-				st.Tests = append(st.Tests, Test{
-					Name: parseTestName(fnStr),
-					Line: line,
-				})
+				t := capTest(&s)
+				src.Tests = append(src.Tests, t)
 			default:
-
+				continue
 			}
-
+		// Detect trait and impl first because they can encapsulate other blocks
 		case "trait":
-			traitSig := ""
-			for {
-				c := s.Next()
-				if c == '{' {
-					depth++
-					break
-				}
-				traitSig += string(c)
-			}
-			traitSig = strings.TrimSpace(traitSig)
-			parent.Trait = traitSig
-			parent.Struct = ""
+			src.Traits = append(src.Traits, capTrait(&s))
 		case "impl":
-			methodSig := "impl"
-			for {
-				c := s.Next()
-				if c == '{' {
-					depth++
-					break
-				}
-				methodSig += string(c)
-			}
-			parent = parseMethod(methodSig)
+			capImpl(&src, &s)
+		case "enum":
+			src.Enums = append(src.Enums, capEnum(&s))
+		case "struct":
+			src.RsStructs = append(src.RsStructs, capStruct(&s))
 		case "fn":
-			var fnSig string
-			line := s.Pos().Line
-			for {
-				c := s.Next()
-				if c == '{' {
-					depth++
-					break
-				}
-				if c == ';' {
-					break
-				}
-				fnSig += string(c)
+			fn, ubs := capFn(&s)
+			src.Funcs = append(src.Funcs, fn)
+			if len(ubs) > 0 {
+				src.UB = append(src.UB, ubs...)
 			}
-			fnSig = strings.TrimSpace(fnSig)
-			f := parseFn(fnSig, line)
-			if depth > 0 {
-				f.Parent = parent
-			}
-			st.Funcs = append(st.Funcs, f)
-		case "{":
-			depth++
-		case "}":
-			depth--
-
+		case "unsafe":
+			src.UB = append(src.UB, capUB(&s))
 		default:
 			continue
 		}
 	}
-	return st, nil
-}
-
-// parseFn extracts the meaningful components from a function signature string.
-func parseFn(s string, lineNum int) Fn {
-	argBegin := strings.Index(s, "(")
-	argEnd := strings.LastIndex(s, ")")
-	retBegin := strings.LastIndex(s, "->")
-	return Fn{
-		Name:   s[0:argBegin],
-		Args:   strings.Split(s[argBegin+1:argEnd], ","),
-		Return: s[retBegin+3:],
-		Line:   lineNum,
-	}
-}
-
-// parseMethod takes a method string and breaks down the name of the parent
-// struct and associated trait, if any.
-func parseMethod(s string) Method {
-	var m Method
-	s = strings.TrimSpace(s)
-	words := strings.Split(s, " ")
-	if len(words) == 4 {
-		m.Trait = words[1]
-	}
-	m.Struct = words[len(words)-1]
-	return m
-}
-
-// parseTestName extracts the name of a test function
-func parseTestName(s string) string {
-	iFn := strings.Index(s, "fn")
-	iArg := strings.Index(s, "(")
-	return strings.TrimSpace(s[iFn+2 : iArg-1])
+	return src, nil
 }
