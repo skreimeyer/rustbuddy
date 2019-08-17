@@ -66,46 +66,53 @@ mod tests {
 	// functions
 	{{range .Funcs | skipMain}}#[test]
 	fn test_{{.Name}}() {
-		{{if len .Args | ne 0 }}struct Input {
+		{{if len .Args | ne 0 }}#[derive(PartialEq)]
+		struct Input {
 			{{range .Args}}{{.}},
 			{{end}}};{{end}}
+		#[derive(PartialEq)]
 		struct Output {
-			R: {{.Return}}
+			r: {{orUnit .Return}},
 		};
+		#[derive(PartialEq)]
 		struct Case { 
-			inpt: Input,
+			input: Input,
 			out: Output,
-			comment: string,
+			comment: String,
 		};
 		// __TEST CASES GO HERE__
-		let cases = vec![
+		for c in vec![
 			// FIXME
 			// Case {
-			// 	inpt: Input {},
-			// 	out: Output{},
-			// 	comment: "",
+			// 	input: Input {},
+			// 	out: Output{r: },
+			// 	comment: String::from(""),
 			// },
 		]
 		// __END TEST CASES__
-		for c in cases.iter() { {{$total := skipSelf .Args | len | lessOne}}
-			assert!({{.Name}}({{range $i,$x := .Args}}c.inpt.{{stripType $x}}{{if ne $i $total}}, {{end}}{{end}}) == c.out, c.comment)
+		.into_iter() { {{$total := skipSelf .Args | len | lessOne}}
+			assert!(
+				Output{r: {{.Name}}({{range $i,$x := .Args}}c.input.{{stripType $x}}{{if ne $i $total}}, {{end}}{{end}}) }== c.out, c.comment
+		)
 		}
 	}
 	{{end}}
 	{{if len .RsStructs | ne 0}}// methods{{end}}
 	{{range .RsStructs}}{{$parent := .Name}}{{range .Methods}}#[test]
 	fn test_{{$parent}}_{{.Name}}() {
-		{{if skipSelf .Args | len | ne 0 }}struct Input {
+		{{if skipSelf .Args | len | ne 0 }}#[derive(PartialEq)]struct Input {
 			{{range skipSelf .Args}}{{.}},
 			{{end}}};{{end}}
+		#[derive(PartialEq)]
 		struct Output {
-			R: {{.Return}}
+			r: {{orUnit .Return}}
 		};
+		#[derive(PartialEq)]
 		struct Case { 
 			obj:		{{$parent}},{{if skipSelf .Args | len | ne 0 }}
 			input:		Input,{{end}}
 			out:		Output,
-			comment:	string,
+			comment:	String,
 		};
 		// __TEST CASES GO HERE__
 		let cases = vec![
@@ -113,14 +120,18 @@ mod tests {
 			// Case {
 			//	obj: 	{{$parent}}{},{{if skipSelf .Args | len | ne 0 }}
 			//	input:	Input{},{{end}}
-			// 	out: 	Output{},
-			// 	comment:"",
+			// 	out: 	Output{r: },
+			// 	comment:String::from(""),
 			// },
 		]
 		// __END TEST CASES__
-		for c in cases.iter() { {{$total := skipSelf .Args | len | lessOne}}
-			assert!(c.obj.{{.Name}}({{range $i, $x := skipSelf .Args}}c.input.{{stripType $x}}{{if ne $i $total}}, {{end}}{{end}}) == c.out, c.comment)
+		.into_iter() { {{$total := skipSelf .Args | len | lessOne}}
+				assert!(
+					Output{r: c.obj.{{.Name}}({{range $i, $x := skipSelf .Args}}c.input.{{stripType $x}}{{if ne $i $total}}, {{end}}{{end}}) == c.out, c.comment
+				)
+			}
 		}
+
 	}
 	{{end}}{{end}}}
 `
@@ -129,6 +140,7 @@ mod tests {
 		"skipSelf":  skipSelf,
 		"skipMain":  skipMain,
 		"lessOne":   lessOne,
+		"orUnit":    orUnit,
 	}
 	testTemp := template.Must(template.New("testTemp").Funcs(fmap).Parse(mktestTemplate))
 
@@ -203,4 +215,11 @@ func skipMain(funcs []rust.Fn) []rust.Fn {
 
 func lessOne(i int) int {
 	return i - 1
+}
+
+func orUnit(s string) string {
+	if s == "" {
+		return "()"
+	}
+	return s
 }

@@ -18,7 +18,13 @@ var treeCmd = &cobra.Command{
 	Long: `Tree takes the name of a crate as an argument, calls the crates.io
 api and then prints the dependency tree. The tree will include useful
 information such as the most recent version, release cadence and date of last
-publication.`,
+publication.
+
+The name is a misnomer. Once upon a time this tool pretty-printeded the typical-
+looking dependency tree, but the level of nesting for some popular crates is so
+deep, that it is just given as an integer in the leftmost column for legibility.
+
+Think of the nesting level as a high score.`,
 	Args: cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		makeTree(args)
@@ -30,11 +36,6 @@ func init() {
 }
 
 func makeTree(args []string) {
-	// data, err := crates.FetchCrate(args[0])
-	// if err != nil {
-	// 	fmt.Println("Could not fetch crate:", args[0])
-	// 	fmt.Println(err)
-	// }
 	const header = `
 +----------------------+------------+------------+------------+----------------+
 |lvl|       Name       |  Version   |  Last Ver  | Pub Cadence|    Last Pub    |
@@ -45,15 +46,6 @@ func makeTree(args []string) {
 	if err != nil {
 		fmt.Println("Returned error:", err)
 	}
-	// var output string
-	// output += header
-	// top, err := makeRow(data, "", 0)
-	// if err != nil {
-	// 	fmt.Println("cannot extract row data. exiting...")
-	// 	return
-	// }
-	// output += top + "\n"
-	// fmt.Print(output)
 	fmt.Println(`+----------------------+------------+------------+------------+----------------+`)
 	return
 }
@@ -108,8 +100,8 @@ func makeRow(data crates.CrateData, ver string, depth int) (string, error) {
 	if err != nil {
 		return row, errors.New("cannot parse pub time")
 	}
-	y, m, d := lastPub.Date()
-	latest := fmt.Sprintf("%v %v %v", y, m, d)
+	d := time.Since(lastPub).Hours()
+	latest := relTime(d)
 
 	row += fmt.Sprintf("|%03d", depth)
 	row += "|"
@@ -201,4 +193,25 @@ func toSemVer(s string) string {
 	}
 	return strings.Join(components, ".")
 
+}
+
+func relTime(t float64) string {
+	switch {
+	case t < 24.0:
+		return "today"
+	case t < 48.0:
+		return "yesterday"
+	case t < 336.0:
+		d := int(t / 24.0)
+		return fmt.Sprintf("%d days ago", d)
+	case t < 1440.0:
+		d := int(t / 168.0)
+		return fmt.Sprintf("%d weeks ago", d)
+	case t < 17520.0:
+		d := int(t / 744.0)
+		return fmt.Sprintf("%d months ago", d)
+	default:
+		d := int(t / 8760.0)
+		return fmt.Sprintf("%d years ago", d)
+	}
 }

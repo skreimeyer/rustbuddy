@@ -29,8 +29,8 @@ var cfgFile string
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
-	Use:   "rustbuddy",
-	Short: "A brief description of your application",
+	Use:   "rustbuddy [subcommand] [flags] [args...]",
+	Short: "Rustbuddy is your friend. He fights for rustaceans",
 	Long: `
   =========================================
   ___         _   _            _    _      
@@ -47,7 +47,6 @@ var rootCmd = &cobra.Command{
  "===\     /==="
   .==')___('==.    
  ' .='     '=.
-
  Rustbuddy is a small suite of tools to assist with rust development. Each 
  automates a small, but common task by code generation or static analysis. All
  generated code self-identifies with comments and aims for common-sense default

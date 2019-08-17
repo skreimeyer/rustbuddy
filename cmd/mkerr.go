@@ -31,7 +31,7 @@ import (
 )
 
 var mkerrCmd = &cobra.Command{
-	Use:   "mkerr",
+	Use:   "mkerr [flags]",
 	Short: "Generate a custom error for a single file",
 	Long: `mkerr uses the file or module name to template out a custom error
 	identical to that shown in the "Defining and Error Type" from the

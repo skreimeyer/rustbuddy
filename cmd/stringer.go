@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"regexp"
 	"sort"
 	"strings"
 	"text/template"
@@ -54,13 +55,17 @@ func init() {
 }
 
 func stringify(args []string) {
+	if len(args) < 2 && allEnum == false {
+		fmt.Println("No enum specified. No changes made. Did you mean to use --all?")
+		return
+	}
 	const stringerTemplate = `
 //GENERATED CODE DO NOT EDIT
 const {{.Name}}_STR: &str = "{{$c := concat .Variants}}{{$c}}";
 impl {{.Name}} {
 	fn to_str(&self) -> &str {
 		match &self {
-			{{$e := .Name}}{{range $_,$v := .Variants}}{{$e}}::{{$v}} => &{{$e}}_STR{{slicer $c $v}},
+			{{$e := .Name}}{{range $_,$v := .Variants}}{{$e}}::{{delType $v}} => &{{$e}}_STR{{slicer $c $v}},
 			{{end}}
 		}
 	}
@@ -82,6 +87,7 @@ impl fmt::Display for {{.Name}} {
 		"slicer":    slicer,
 		"stripTail": stripTail,
 		"plusOne":   plusOne,
+		"delType":   delType,
 	}
 	var buf bytes.Buffer
 	var q enumQueue
@@ -175,4 +181,11 @@ func (q enumQueue) Len() int      { return len(q) }
 func (q enumQueue) Swap(i, j int) { q[i], q[j] = q[j], q[i] }
 func (q enumQueue) Less(i, j int) bool {
 	return q[i].Span.End.Offset < q[j].Span.End.Offset
+}
+
+// pull out anything that looks like a type. I don't expect this to work nicely
+// with deep nesting.
+func delType(s string) string {
+	re := regexp.MustCompile(`:\s*[[:alnum:]]+`)
+	return re.ReplaceAllString(s, "")
 }

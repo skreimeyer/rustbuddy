@@ -14,7 +14,7 @@ import (
 
 // bumpCmd represents the bump command
 var bumpCmd = &cobra.Command{
-	Use:   "bump",
+	Use:   "bump [flags]",
 	Short: "Bump the current version",
 	Long: `Bump locates the Cargo.toml and increments the version with options
 for what type of change is desired in typical semantic-versioning. Major
