@@ -80,16 +80,16 @@ mod tests {
 			out: Output,
 			comment: String,
 		};
-		// __TEST CASES GO HERE__
+		// start test cases
 		for c in vec![
-			// FIXME
+			// make your test cases here
 			// Case {
 			// 	input: Input {},
 			// 	out: Output{r: },
 			// 	comment: String::from(""),
 			// },
 		]
-		// __END TEST CASES__
+		// end of test cases
 		.into_iter() { {{$total := skipSelf .Args | len | lessOne}}
 			assert!(
 				Output{r: {{.Name}}({{range $i,$x := .Args}}c.input.{{stripType $x}}{{if ne $i $total}}, {{end}}{{end}}) }== c.out, c.comment
@@ -133,7 +133,7 @@ mod tests {
 		}
 
 	}
-	{{end}}{{end}}}
+	{{end}}{{end}}}//End generated code
 `
 	fmap := template.FuncMap{
 		"stripType": stripType,
